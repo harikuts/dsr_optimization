@@ -83,6 +83,8 @@ class HelloWorld(Application):
         self.routing_lifetimes = {}
         self.neighbors = []
         self.communication = None
+        self.buff = None
+        self.buff_occupied = False
         print '[node %d] initialize' % self.__node_id
 
     def finalize(self, shared):
@@ -119,6 +121,7 @@ class HelloWorld(Application):
             print ('R: %d<-%d: "%s"'
                    % (self.__node_id, msg[0], msg[1]))
             
+            
     def dispatch_msg(self, src_id, dest_id, message):
         # If cached route is available
         if dest_id in self.routing_table:
@@ -132,4 +135,4 @@ class HelloWorld(Application):
         pass
     
     def handle_msg(self, packet):
-        pass
+        return dsr_msg(packet=packet)
