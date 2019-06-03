@@ -112,6 +112,7 @@ class HelloWorld(Application):
         #if self.__node_id == 0:
             print("S: %d->ALL" % self.__node_id)
             #communication.send('hi')
+            # Repeatedly send hi messages out
             self.dispatch_msg(self.__node_id, 6, "hi")
         while True:
             #print ("%d's neighbors:" % self.__node_id, neighbors)
@@ -120,19 +121,44 @@ class HelloWorld(Application):
                 break
             print ('R: %d<-%d: "%s"'
                    % (self.__node_id, msg[0], msg[1]))
+            self.handle_msg(msg[1])
             
             
     def dispatch_msg(self, src_id, dest_id, message):
         # If cached route is available
-        if dest_id in self.routing_table:
+        if dest_id in self.routing_table.keys():
             # Then send it along that path
             pass
         # If we need to find a route
         else:
             print ("Need path from %d to %d" % (src_id, dest_id))
-            rreq = dsr_msg(mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id)
+            self.routing_table[dest_id] = None
+            #rreq = dsr_msg(mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id)
+            #self.communication.send(rreq.packet)
+            self.forward_rreq(src_id, self.__node_id, dest_id, path=[])
+        pass
+    
+    def forward_msg(self, src_id, cur_id, dest_id, content):
+        pass
+    
+    def forward_rreq(self, src_id, cur_id, dest_id, path):
+        if cur_id in path:
+            self.forward_rrep(src_id, cur_id, dest_id, reversed(path))
+        else:
+            path.append(cur_id)
+            rreq = dsr_msg(mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id, path=path)
             self.communication.send(rreq.packet)
+    
+    def forward_rrep(self, src_id, cur_id, dest_id, content):
+        
         pass
     
     def handle_msg(self, packet):
-        return dsr_msg(packet=packet)
+        msg = dsr_msg(packet=packet)
+        if msg.mtype == RREQ_TYPE:
+            if msg.dest == self.__node_id:
+                print("WE GOT HERE!")
+                # Send a reply back
+                pass
+            else:
+                self.forward_rreq(msg.src, self.__node_id, msg.dest, msg.path)
