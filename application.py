@@ -20,8 +20,10 @@ RREQ_TYPE = 1
 RREP_TYPE = 2
 RERR_TYPE = 3
 
-RREQ_WAIT_TIME = 1000
-STATIC_TIMEOUT = 3000
+RREQ_WAIT_TIME = 25
+STATIC_TIMEOUT = 5000
+MSG_LIFE = 10000
+NODE_MEM_SPAN = 25
 
 PKT_DIV = "|"
 
@@ -37,7 +39,9 @@ class dsr_msg:
     # message (MSG_TYPE)
     # path (ALL)
     
-    def __init__(self, packet=None, mlife=None, mtype=None, src_id=None, dest_id=None, target_id=None, message=None, path=None):
+    def __init__(self, packet=None, mlife=None, mtype=None, \
+        src_id=None, dest_id=None, target_id=None, \
+            message=None, path=None, new_msg=False):
         if packet:
             self.extract_packet(packet)
         else:
@@ -48,6 +52,8 @@ class dsr_msg:
             self.target = target_id
             self.message = message
             self.path = path
+        if new_msg:
+            self.mlife = MSG_LIFE
         self._zip_packet()
             
     def extract_packet(self, pkt):
@@ -90,8 +96,11 @@ class HelloWorld(Application):
         self.route_lifetimes = {}
         self.neighbors = []
         self.communication = None
-        self.buff = None
-        self.buff_occupied = False
+        self.buff = [None] * 8
+        self.last_rrep_dest = None
+        self.last_rrep_time = None
+        self.last_rreq_dest = None
+        self.last_rreq_time = None
         print '[node %d] initialize' % self.__node_id
 
     def finalize(self, shared):
@@ -116,12 +125,24 @@ class HelloWorld(Application):
         self.neighbors = neighbors
         self.communication = communication
         
-        # Route table maintenace
-        for entry in self.route_table.keys():
-            self.route_lifetimes[entry] -= 1
-            if self.route_lifetimes[entry] <= 0:
-                del self.route_table[entry]
-                del self.route_lifetimes[entry]
+        #Route table maintenace
+        #for entry in self.route_table.keys():
+            #self.route_lifetimes[entry] -= 1
+            #if self.route_lifetimes[entry] <= 0:
+                #print("Route for %d has expired." % (entry))
+                #del self.route_table[entry]
+                #del self.route_lifetimes[entry]
+        
+        # Last RREQ/RREP memory maintenance
+        if self.last_rreq_time > 0:
+            self.last_rreq_time -= 1
+        else:
+            self.last_rreq_dest = None
+        if self.last_rrep_time > 0:
+            self.last_rrep_time -= 1
+        else:
+            self.last_rrep_dest = None
+        
         
         #print("main for", self.__node_id)
         if self.__node_id == 0:
@@ -129,7 +150,20 @@ class HelloWorld(Application):
             #print("S: %d->ALL" % self.__node_id)
             #communication.send('hi')
             # Repeatedly send hi messages out
-            self.dispatch_msg(self.__node_id, random.randint(1,7), "hi")
+            if None not in self.route_table.values():
+                buff_occupied = False
+                for i in range(len(self.buff)):
+                    if self.buff[i] is not None:
+                        buff_occupied = True
+                        self.dispatch_msg(self.__node_id, i, self.buff[i])
+                        break
+                        print ("Sending from buffer '%s' to %d" % (self.buff[i], i))
+                        self.buff[i] = None
+                if not buff_occupied:
+                    target = random.randint(1,7)
+                    message = "hi"
+                    print ("Sending '%s' to %d" % (message, target))
+                    self.dispatch_msg(self.__node_id, target, message)
         while True:
             #print ("%d's neighbors:" % self.__node_id, neighbors)
             msg = communication.receive()
@@ -142,60 +176,67 @@ class HelloWorld(Application):
             
     def dispatch_msg(self, src_id, dest_id, message):
         # If cached route is available
-        if dest_id in self.route_table.keys():
+        if dest_id in self.route_table.keys() and self.route_table[dest_id] is not None:
             # Then send it along that path
+            print("\tomw")
             pass
         # If we need to find a route
         else:
+            self.buff[dest_id] = message
             print ("Need path from %d to %d" % (src_id, dest_id))
             self.route_table[dest_id] = None
             self.route_lifetimes[dest_id] = RREQ_WAIT_TIME
-            #rreq = dsr_msg(mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id)
-            #self.communication.send(rreq.packet)
-            self.forward_rreq(src_id, self.__node_id, dest_id, path=[])
+            # Send a new RREQ
+            self.forward_rreq(src_id, self.__node_id, dest_id, path=[], new_msg=True)
         pass
     
     def forward_msg(self, src_id, cur_id, dest_id, content):
         pass
     
-    def forward_rreq(self, src_id, cur_id, dest_id, path):
-        if cur_id not in path:
+    def forward_rreq(self, src_id, cur_id, dest_id, path, msg_life=0, new_msg=False):
+        if cur_id not in path and dest_id != self.last_rreq_dest:
+            self.last_rreq_dest = dest_id
+            self.last_rreq_time = NODE_MEM_SPAN
             path.append(cur_id)
-            rreq = dsr_msg(mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id, path=path)
+            rreq = dsr_msg(mlife=msg_life, mtype=RREQ_TYPE, src_id=src_id, dest_id=dest_id, path=path, new_msg=new_msg)
             self.communication.send(rreq.packet)
     
-    def forward_rrep(self, src_id, target_id, dest_id, path):
-        rrep = dsr_msg(mtype=RREP_TYPE, src_id=src_id, target_id=target_id, dest_id=dest_id, path=path)
-        self.communication.send(rrep.packet)
+    def forward_rrep(self, src_id, target_id, dest_id, path, msg_life=0, new_msg=False):
+        if dest_id != self.last_rrep_dest:
+            self.last_rrep_dest = dest_id
+            self.last_rrep_time = NODE_MEM_SPAN
+            rrep = dsr_msg(mlife=msg_life, mtype=RREP_TYPE, src_id=src_id, target_id=target_id, dest_id=dest_id, path=path)
+            self.communication.send(rrep.packet)
     
     def handle_msg(self, from_here, packet):
         msg = dsr_msg(packet=packet)
+        msg.mlife -= 1
         
         # Handle RREQ messages
         if msg.mtype == RREQ_TYPE:
             #print("%d got a RREQ from %d with path %s." % (self.__node_id, from_here, str(msg.path)))
             if msg.dest == self.__node_id:
                 print("Reached %d. Sending back to %d." % (msg.dest, msg.path[-1]))
-                # Send a reply back
-                self.forward_rrep(msg.src, msg.path[-1], msg.dest, msg.path+[self.__node_id])
+                # Send a new reply back
+                self.forward_rrep(msg.src, msg.path[-1], msg.dest, msg.path+[self.__node_id], new_msg=True)
                 pass
             else:
-                self.forward_rreq(msg.src, self.__node_id, msg.dest, msg.path)
+                self.forward_rreq(msg.src, self.__node_id, msg.dest, msg.path, msg_life=msg.mlife)
         
         # Handle RREP messages
-        if msg.mtype == RREP_TYPE and msg.target == self.__node_id:
-            #print("%d got a RREP from %d with path %s." % (self.__node_id, from_here, str(msg.path)))
+        if msg.mtype == RREP_TYPE and 1 > 0 and msg.target == self.__node_id:
+            print("%d got a RREP from %d with path %s." % (self.__node_id, from_here, str(msg.path)))
             # If RREP has been received at the source, then add it to the routing table
             if msg.src == self.__node_id:
-                #print("\tRREP has reached the source.")
+                print("\tRREP has reached the source.")
                 #pdb.set_trace()
                 if msg.dest in self.route_table.keys():
                     if self.route_table[msg.dest] is None:
-                        print ("Adding path from %d to %d: %s" % (msg.src, msg.dest, str(msg.path)))
+                        print ("\n[Adding] path from [%d] to [%d]: %s\n" % (msg.src, msg.dest, str(msg.path)))
                         self.route_table[msg.dest] = msg.path
                         self.route_lifetimes[msg.dest] = STATIC_TIMEOUT
             else:
                 target = msg.path[msg.path.index(self.__node_id) - 1]
                 #print("\tForward targeted at %d." % (target))
-                self.forward_rrep(msg.src, target, msg.dest, msg.path)
+                self.forward_rrep(msg.src, target, msg.dest, msg.path, msg_life=msg.mlife)
             

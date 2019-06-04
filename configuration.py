@@ -38,7 +38,7 @@ logger_level = 'warning'
 simulation_frequency = 1
 
 ## Total simulation steps:
-total_simulation_steps = 10000
+total_simulation_steps = 100
 
 ## Number of nodes:
 nodes_number = 8
