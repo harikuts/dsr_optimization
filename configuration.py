@@ -38,7 +38,7 @@ logger_level = 'warning'
 simulation_frequency = 1
 
 ## Total simulation steps:
-total_simulation_steps = 10
+total_simulation_steps = 10000
 
 ## Number of nodes:
 nodes_number = 8
@@ -53,7 +53,7 @@ placement = [PlacementGrid]
 #placement = [PlacementUniform]
 
 ## speed
-speed = [SpeedConstant, {'speed': 1.0}]
+speed = [SpeedConstant, {'speed': 0.1}]
 #speed = [SpeedNormal, {'mean': 5.0, 'standard_deviation': 2.0}]
 #speed = [SpeedUniform, {'minimal_speed': 0.0, 'maximal_speed': 5.0}]
 
